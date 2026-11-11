@@ -1,88 +1,98 @@
 # homelab-diagram
 
-The script behind the network diagram of my homelab that I posted on r/homelab. It turns a YAML file describing the lab into a big SVG/PNG diagram in the style of the diagrams you see on r/homelab.
+A YAML inventory plus a hand-placed layout that renders this homelab as one big SVG/PNG —
+the path from AT&T fiber through the UniFi gateway and the TP-Link switches into the
+four-node Proxmox cluster, every guest on it, the Synology storage, and the media pipeline.
 
-![Example output](docs/example.png)
+Forked from [Goblinmine/homelab-diagram](https://github.com/Goblinmine/homelab-diagram) and
+rebuilt for a different topology: a flat `192.168.7.0/24` LAN with two extra VLANs, a
+4-node cluster running 60 guests, and Cloudflare Tunnel ingress instead of port forwards.
 
-> [!IMPORTANT]
-> **This is not a general tool.** The *content* comes from `inventory.yaml`, but the *layout* (where every box, port and cable goes) is hand-placed in `build.py` for exactly my network. If you want to use it for yours, expect to move coordinates around in the code. Think of it as a starting point, not a finished product.
-
-> [!NOTE]
-> **The code was written by AI.** I built this together with Claude (Anthropic) in Claude Code. I described what I wanted and gave feedback on every render, Claude wrote and changed the code. A few example prompts are at the end of this README.
+![Diagram](out/homelab.png)
 
 ## What it shows
 
-- the path from the internet through the ISP router (with its real ports) and the firewall to the core switch
-- every switch port with the VLANs on it (tall bar = untagged, short bars = tagged)
-- cables whose **line width is the negotiated link speed** (10G / 2.5G / 1G / 100M), trunks drawn as a white cable with a dark core
-- the devices with name, type, model, IP · hostname and OS
-- the Proxmox host with its hardware, the VMs/CTs outside the DMZ, the TrueNAS pools (disks, vdevs, usage) and every DMZ container with its CT ID, IP and hostname
-- containers that run several apps as one card with a row per app
-- what's open to the internet, a legend, the networks table and a small "media pipeline" explainer
+- **Edge**: AT&T fiber → BGW320-505 in IP passthrough → UniFi UX Max (gateway + Wi-Fi 7) →
+  TP-Link switching. The UX Max also runs the controller and 4 mesh APs.
+- **Networks**: LAN (native), IoT (`192.168.20.0/24`), Untrusted (`192.168.30.0/24`) and the
+  Tailscale mesh. SSIDs are listed with the VLAN each one lands on.
+- **The cluster**: every running guest, grouped by Proxmox node, with `VM`/`CT` id, IP and
+  its public hostname or `.internal` name. Facts are rendered from `inventory.yaml`, which was
+  filled by reading the live systems.
+- **Storage**: the DS920+ `volume1` (4-disk SHR + NVMe cache), its free space, and the four
+  shares the media VMs mount.
+- **Media pipeline**: request → download → library → stream, with the two shares each stage
+  touches.
+- **Exposure**: the two real port forwards (WireGuard, Plex) versus the 42 public hostnames
+  that ride the Cloudflare Tunnel, plus the monitoring stack.
 
 ## How it works
 
-- `inventory.yaml` holds everything the picture shows: VLANs, devices, switch ports, port forwards, hardware, containers, pools.
-- `build.py` draws the diagram as SVG with hand-placed coordinates, embeds the icons and converts it to PNG with `rsvg-convert`. Text widths for a few labels are measured with Pillow from the real font, so tabs and badges fit their text.
-- **Redaction:** by default the real domain is replaced with `redacted.com` and SSIDs get generic names, so the PNG can be posted publicly. `python3 build.py --unredacted` renders a private version with the real values from `inventory.yaml`.
+- `inventory.yaml` holds everything the picture shows: networks, devices, switch ports, the
+  cluster's nodes and guests, storage, the pipeline, public hostnames.
+- `build.py` draws SVG with hand-placed coordinates, embeds icons as base64, and converts to
+  PNG with `rsvg-convert -z 1.6` (so PNG pixels = SVG units × 1.6). Text widths are measured
+  from the real font with Pillow, and labels that would overflow are shrunk to fit (`fit()`
+  in `build.py`); the canvas height is derived from the lowest element, so nothing clips.
+- **Redaction**: the default render replaces `paine.pro` with `example.com`, genericises the
+  SSIDs, and hides the public WAN address. `python3 build.py --unredacted` renders the real
+  values from `inventory.yaml`.
 
 ## Requirements
 
-- Python 3 with **PyYAML** (Pillow is optional, but makes label widths exact)
-- **rsvg-convert** (librsvg) for the PNG
-- the fonts **Fira Sans** and **Fira Code** installed (found via fontconfig)
+- Python 3 with **PyYAML** and **Pillow**
+- **rsvg-convert** (librsvg)
+- the fonts **Fira Sans** and **Fira Code**
 
-On Arch/CachyOS: `pacman -S python-yaml python-pillow librsvg ttf-fira-sans ttf-fira-code`
-On Debian/Ubuntu: `apt install python3-yaml python3-pil librsvg2-bin fonts-firacode` plus Fira Sans
+On Debian/Ubuntu:
+
+```bash
+apt install python3-yaml python3-pil librsvg2-bin fonts-firacode
+# Fira Sans is not packaged in Debian; fetch it from upstream:
+curl -sSL https://github.com/mozilla/Fira/archive/refs/tags/4.202.tar.gz | tar xz -C /tmp
+install -m644 /tmp/Fira-4.202/otf/FiraSans-*.otf /usr/share/fonts/truetype/fira/
+fc-cache -f
+```
 
 ## Usage
 
 ```bash
-python3 fetch_icons.py          # downloads the service icons into icons/ (once)
+python3 fetch_icons.py          # download the service icons into icons/ (once)
 python3 build.py                # → out/homelab.svg + out/homelab.png (redacted)
 python3 build.py --unredacted   # → out/homelab-unredacted.svg + .png
 ```
 
-The service icons are **not** in this repo, `fetch_icons.py` downloads them from [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Only my own small glyphs (`icons/glyph-*.svg`: CPU, RAM, SSD, …) are included.
+The service icons come from [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons);
+only the small `icons/glyph-*.svg` glyphs are part of this repo.
 
-## Making it your own
+## Adapting it
 
-1. Change `inventory.yaml` to your network. Texts, IPs, ports, VLAN colors and the container groups come from there.
-2. Look at the render. Things that don't fit are layout: the top part (cloud, ISP router, firewall, switch, device row) and the column split inside the server card are coordinates in `build.py` (search for `fy, fh`, `ox, oy`, `bx, by`, `DY`, `MAD = …`).
-3. New icons: drop an SVG into `icons/` and use its file name in the inventory.
+1. Rewrite `inventory.yaml` for the target network.
+2. Adjust the coordinates at the top of `build.py` (`FY/OX/BY/DY` for the vertical chain,
+   `PX0/PITCH` for the switch row, `TXX/TWW` for the cluster card, `SY0/STW/MPX` for the
+   bottom band). The `assert`s at the end fail loudly when a panel overflows.
+3. `python3 fetch_icons.py`, then render and look at the PNG — zoom into busy areas with
+   `magick out/homelab.png -crop 1400x600+X+Y +repage -resize 70% /tmp/crop.png`
+   (PNG pixels = SVG × 1.6).
 
-## Using it with Claude Code
+## Where the facts came from
 
-The repo contains a [`CLAUDE.md`](CLAUDE.md) with everything an AI agent needs to adapt it to your lab: how the code is structured, which parts of the layout are hardcoded, the questions to ask about your network, the render-and-check loop, and the design rules this diagram follows.
+Everything in `inventory.yaml` was read live on 2026-11-11, not guessed:
 
-Clone the repo, open it with [Claude Code](https://claude.com/claude-code) and say something like *"help me make this diagram for my homelab"*. It will interview you about your network (or read your docs if you have some), rewrite `inventory.yaml`, adapt `build.py` and iterate on the render with you. Other agents can use the same file as context.
-
-## How it was made
-
-I had seen these diagrams on r/homelab for years and always wanted one for my own network. My setup was documented in an Obsidian vault (written by another Claude Code session, checked against the live systems), so the workflow was:
-
-1. **Gathering the facts.** Claude Code read the documentation and filled the gaps with read-only checks on the live systems: link speeds from the switch, disk models and pool usage from TrueNAS, the router model from its info page, hostnames from DNS, the containers running in each CT.
-2. **First draft.** Claude wrote `inventory.yaml` and `build.py`, rendered the PNG and looked at the image itself (plus zoomed-in crops) to catch overlaps before showing it to me.
-3. **Iterating.** Then it was me giving feedback, Claude changing the code, re-rendering and checking again, about 60 rounds. Most of the design decisions (folder-shaped device cards, line width = speed, CT on top and IP below, no internal ports, …) came out of that back and forth.
-4. **Publishing.** For this repo Claude made a cleaned-up copy (example domain, generic SSIDs), added the icon download script and checked that a fresh clone renders exactly the posted image.
-
-Tools: Claude Code with Claude Opus 5.5, Python, librsvg, Pillow.
-
-## Example prompts
-
-About 60 prompts went into this. Three typical ones, to give an idea of how the back and forth looked:
-
-**Getting started**
-> Do you know the network diagrams people post on r/homelab? I'd like one for my own network. My setup is documented in my Obsidian vault, read it and check the live systems for anything that's missing.
-
-**Design feedback**
-> Use the line thickness to show the link speed and put a small speed label where each cable reaches a device. Also remove the interface names like em0 or igc0, nobody needs them on a diagram.
-
-**Fixing the facts**
-> That's not quite right yet: there are two shares. qBittorrent only downloads into the Torrents share, and when a download is done Sonarr/Radarr copy the file with the right name into the Media share. qBittorrent has no access to the Media share at all.
+| Source | Used for |
+|---|---|
+| `pvesh get /cluster/resources` on nuc1 | nodes, guest ids, names, RAM, running state |
+| UniFi API (`/proxy/network/api/s/default/*`) | WAN link, VLANs, SSIDs, AP uplinks, port forwards, fixed-IP map |
+| `dig @192.168.7.55 <name>.flatcar-lab.internal` | each VM's IP |
+| Synology DSM over SSH | model, disks, `volume1` usage, shares |
+| `pvesh get /nodes/<n>/status` | CPU model, RAM per node |
+| Prometheus `speedtest_tracker_*` | real WAN throughput |
+| `docs/PORT-REGISTER.md` + Tunnel ingress | public hostnames |
 
 ## Credits & license
 
-- Code and the glyph icons in `icons/`: MIT, see [LICENSE](LICENSE).
-- Service icons: [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons), downloaded by `fetch_icons.py`, not part of this repo. The logos belong to their projects.
-- Fonts: [Fira Sans / Fira Code](https://github.com/mozilla/Fira) (SIL Open Font License), not included.
+- Original code, layout and the `glyph-*.svg` icons: MIT, see [LICENSE](LICENSE) —
+  © the upstream author.
+- Service icons: [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons);
+  the logos belong to their projects.
+- Fonts: Fira Sans / Fira Code (SIL Open Font License).

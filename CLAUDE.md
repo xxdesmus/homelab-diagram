@@ -1,79 +1,71 @@
-# CLAUDE.md – adapting this diagram to someone else's homelab
+# CLAUDE.md — this fork's layout
 
-You are helping a user turn **their** homelab into a diagram like `docs/example.png`. The repo currently describes the original author's lab. Your job: find out what their lab looks like, rewrite `inventory.yaml`, adapt the layout in `build.py`, and iterate on the render with them until they are happy.
+This is a fork of `Goblinmine/homelab-diagram` rebuilt for one specific lab: a flat
+`192.168.7.0/24` LAN, AT&T fiber behind a BGW320 in IP passthrough, a UniFi UX Max gateway
+with four mesh APs, TP-Link switching, and a four-node Proxmox cluster running 60 guests.
 
-Start by telling the user briefly how this works (interview → inventory → layout → render/feedback rounds), then begin the interview. Don't ask everything at once.
+The original `CLAUDE.md` (the interview-driven adaptation guide) lives in the upstream repo
+and is still the right document for adapting *this* code to *another* lab. This file records
+what changed here so a future session does not re-derive it.
 
-## How the repo works
+## Layout map of `build.py`
 
-- `inventory.yaml` – all content: VLANs, devices, switch ports, port forwards, server hardware, VMs/containers, storage pools, the media pipeline.
-- `build.py` – hand-placed layout. Draws an SVG with absolute coordinates (logical canvas `W = 2400`, height `H`), embeds icons as base64, converts to PNG with `rsvg-convert -z 1.6` (so PNG pixels = SVG units × 1.6).
-- `fetch_icons.py` – downloads service icons into `icons/` (dashboard-icons). Own glyphs `icons/glyph-*.svg` are in the repo.
-- Output: `out/homelab.png` (redacted, safe to post) and `out/homelab-unredacted.png` (`--unredacted`).
-
-### What is generic and what is hardcoded
-
-Generic (driven by the YAML): VLAN table, legend, "Open to the internet" card, cloud services, OPNsense hardware/services lists, switch ports (labels, VLAN ticks, colors), device cards, SSIDs, server hardware tiles, guest cards, DMZ groups and their chips, multi-app container cards, storage pools, the media pipeline nodes and shares.
-
-Hardcoded in `build.py` (you will almost certainly edit these):
-
-| Section (search for) | What's fixed | Typical change |
+| Section | What it holds | Coordinates |
 |---|---|---|
-| `# TOP: edge chain` | positions `CX`, `cy0`, `fy, fh` (ISP router), `ox, oy, ow, oh` (firewall), `bx, by, bw, bh` (switch) | different heights/widths, no ISP router (bridge mode), no separate firewall |
-| ISP router block (`FBX`, `COAX_X`, `FB_PORTS`) | a cable modem with a coax port + LAN ports, firewall in `opnsense_port` | DSL/fiber/ONT: rename the coax port or remove it, change port list |
-| `port_x()`, `PX0, PITCH` | switch with 8 RJ45 + 2 SFP+ in one row | other port counts, second switch |
-| `# device row`: `DY`, `MAD/KVM/AP/ZB` tuples and the `device("madcat", …)` calls | which devices sit under the switch, their x/width/height, and the cable routing to them (`MAD_10G`, `KVM_IN`, `AP_IN`, `ZB_IN`, the `S.line(... PORTS["etherN"] ...)` calls) | add/remove devices, re-route cables so they don't cross |
-| `# terra` | the big server card: `tx0, ty0`, `GY`, `ZH`, hardware column width `HWW`, guest column `gx, gw` | several servers, other column split |
-| other-VLAN guests | `og["truenas"]`, `og["haos"]`, `og["unifi"]`, `og["bliss"]` drawn one below another with fixed heights | different VMs outside the DMZ |
-| `# DMZ zone`: `NCOL` and the `column(i, [group names])` calls | which DMZ group goes into which column | rebalance columns for their groups |
-| `# media pipeline` | an *arr/Jellyfin explainer panel | remove the whole section if they don't want it, or reuse it for another flow |
-| `W, H` | canvas size | grow `H` when content gets taller (the asserts at the end tell you) |
+| `TOP: internet` | cloud, remote card, Cloudflare/Tailscale cards | `CX`, `CY0`, `RX_/RY_`, `CSX/CSY` |
+| AT&T gateway | fiber port, four LAN ports, IP passthrough | `FY, FH`, `GWX, GWW` |
+| UX Max | hardware list (left), services grid (right) | `OX, OY, OW, OH` |
+| switch | 9 jacks, VLAN ticks, port labels | `BX, BY, BW, BH`, `PX0, PITCH` |
+| right column | exposure, monitoring (2 cols), AP mesh + SSIDs, public hostnames | `IX_, IY_, IW_`, `apy`, `ph_y` |
+| left column | networks table, fleet facts, legend | `vx, vy, vw`, `fy0`, `LEG_Y` |
+| cluster | one block per node; each block splits into 1–3 sub-columns | `TXX, TWW`, `DY`, `GY`, `BLOCK_X` |
+| storage | DS920+, `volume1`, pool disks, shares | `SY0`, `STW`, `SH0` |
+| media pipeline | 4 nodes across, prowlarr + shares below | `MPX`, `MPW`, `r1`, `r2` |
 
-Safety nets: `assert`s at the end of sections fail loudly when a column/panel overflows. Text widths come from `measure()` (Pillow + the real font) or the rough estimate `tw()`. Always check visually.
+## Things that are easy to break
 
-## The interview
+- **Canvas height is derived, not constant.** `SVG.render()` emits the background based on
+  `self.max_y`, which `rect`/`text`/`icon`/`line` update. Never reintroduce a fixed `H`; the old
+  code grew it by hand and clipped content twice.
+- **Cluster columns are adaptive.** `SUBS` picks 1–3 sub-columns per node from its guest count,
+  targeting `ROWS = 8` rows. Add guests and the block widens; the `assert nx(3) + BLOCK_W[3]`
+  catches overflow.
+- **Chip text is measured in Fira Code, not the proportional font.** `guest_chip()` uses
+  `tw(..., mono=True)` for the IP and id (`measure()` would under-report and the hostname
+  would collide with the IP — that bug happened). Hostnames are only printed when the measured
+  width fits; the complete list is in the "Public services" card.
+- **`fit()` shrinks instead of clipping.** Any label passed through it fits its box. Use it for
+  anything data-driven; only hand-tuned static strings can skip it.
+- **Redaction covers three things**: `{domain}`/`paine.pro` → `example.com`, SSID names, and the
+  public WAN IP (`PUBLIC_IP` → `public IPv4 · /23`). All three go through `sub()`, so anything
+  drawn by `S.text` is covered. Verify before publishing:
 
-Ask in rounds of 3–6 questions, grouped by topic, and offer defaults. If the user has documentation (wiki, notes, a docs repo) or you have shell access to their systems, offer to read that first and only ask for the gaps. **Only run read-only commands, and ask before touching any system.**
+  ```bash
+  grep -c 'paine\.pro\|KingArthur\|104\.13\.212\.149' out/homelab.svg   # must be 0
+  ```
 
-1. **Purpose & privacy:** public post (e.g. Reddit) or private? Real domain to hide? Real SSID names to hide? Username watermark? Title and date?
-2. **Internet edge:** ISP connection type and speed (down/up), modem/router model, its ports and which one the firewall uses, bridge mode or double NAT/exposed host, DNS provider, offsite backup target.
-3. **Firewall/router:** hardware (CPU, RAM, NICs), OS + version, management IP/hostname, services (DNS, DHCP, VPN, IDS/IPS, …), LACP/bonds.
-4. **Switch(es):** model, OS/version, management IP, and per port: connected device, negotiated speed, untagged VLAN, tagged VLANs. (Many switches can print this, e.g. RouterOS `/interface ethernet monitor [find] once` and `/interface bridge vlan print`.)
-5. **VLANs:** ID, name, subnet, one-line policy ("internet only", "services, no LAN access", …). Colors: keep the defaults unless they want others.
-6. **Other devices:** workstation(s), KVM, access points (SSIDs → VLANs), IoT radios/coordinators, NAS boxes, anything with a cable.
-7. **Server(s):** hypervisor + version, CPU, RAM, GPU, NICs, every disk (model/size) and whether it's passed through to a VM.
-8. **Guests:** every VM/container: ID, IP, VLAN, what runs in it. Containers running several apps (often Docker) become one card with a row per app. Which apps are public (behind a reverse proxy, shown as `app.domain`), which LAN-only, which have no web UI (`name.internal`)?
-9. **Storage:** pools/vdevs/disks, used/free, shares and who mounts them.
-10. **Port forwards:** port, protocol, target, purpose.
-11. **Extras:** remote access/VPN, cloud services, a flow worth explaining (like the media pipeline), anything they're proud of or want to highlight.
+## Facts and their sources
 
-Useful read-only commands if you have access (ask first): Proxmox `pct list`, `qm list`, `pct config <id>`; `docker ps`; `ip -br a`; ZFS `zpool list -v`, `zfs list`; TrueNAS `midclt call pool.query`, `midclt call disk.query`; `lspci`; `lsblk -o NAME,MODEL,SIZE`.
+`inventory.yaml` was filled on 2026-11-11 from live read-only checks:
 
-## The work loop
+- `pvesh get /cluster/resources --type vm` — 60 running guests (53 QEMU + 7 LXC), ids, RAM.
+- UniFi API — WAN uplink (`1G` negotiated on `eth1`), VLANs 20/30, the three SSIDs, four mesh
+  APs on 6 GHz, the two port forwards, and the fixed-IP map.
+- `dig @192.168.7.55 <name>.flatcar-lab.internal` — every VM's address.
+- Synology DSM over SSH — DS920+, four SHR disks (24+20+16+12 TB), NVMe cache, `volume1`
+  19 TiB used of 42 TiB.
+- Prometheus `speedtest_tracker_download_bits` — ~940/900 Mbit/s peak.
 
-1. Write `inventory.yaml` for their lab (keep the schema; extend it when needed and teach `build.py` the new fields).
-2. Adapt `build.py`: decide which panels exist, adjust the hardcoded positions above, remove sections they don't need.
-3. `python3 fetch_icons.py` (add new icons to `ICON_MAP` first: local name → name in [dashboard-icons](https://github.com/homarr-labs/dashboard-icons); dark icons need a `-light` variant or an entry in `RECOLOR`).
-4. `python3 build.py`, then **look at `out/homelab.png` yourself** before showing it. Zoom into busy areas: `magick out/homelab.png -crop 1400x600+X+Y +repage -resize 70% /tmp/crop.png` (X/Y in PNG pixels = SVG coordinates × 1.6). Look for overlapping text, cables crossing cards, text running out of boxes, empty gaps.
-5. Show the user, take feedback, change, re-render. Expect many small rounds, that's normal.
-6. Before they share it: render without `--unredacted` and `grep` `out/homelab.svg` for their real domain, SSID names and anything private.
+If a fact changes, change it in `inventory.yaml` only; `build.py` reads everything from there.
 
-## Design rules (keep them unless the user wants otherwise)
+## Verify a render
 
-- **Line width = negotiated link speed** (`SPEED_W`), plus a small speed tag where a cable reaches a device. Trunks (tagged VLANs) are a white cable with a dark core; access links use the VLAN color.
-- Only **physical cables are solid lines**. Dotted = logical, over the internet (VPN, cloud services). Dashed grey = KVM console.
-- **Card border = the device's VLAN color**; devices on a trunk (firewall, switch, hypervisor, APs with several SSIDs) get the neutral `TRUNK_BORDER`.
-- **Physical devices** use the folder-tab card: tab = `name · type`; body = icon, full model name (or what it is, for self-built machines), `IP · hostname` in the VLAN color, OS + version.
-- **Hardware tiles** have the tan bar on the left; label = type (CPU, MEMORY, SSD, …), value = the part, sub line = extra info or `passthrough → <guest>`.
-- **DMZ chips:** `CT <id>` top-right, `.<last octet>` below it; third line = hostname: blue `app.domain` if public via the reverse proxy, `name.internal` otherwise, plus a `LAN` pill when the public hostname is LAN/VPN-only.
-- **Multi-app containers** are one taller card with a row per app. The Docker badge only appears on multi-app Docker containers.
-- **No internal-only ports** (API ports etc.); only what's forwarded from the internet appears, in the "Open to the internet" card.
-- ZFS sizes in TiB/GiB (what ZFS reports), disk sizes in TB as sold.
-- Keep text plain and short; no marketing-style subtitles.
+```bash
+python3 build.py && python3 build.py --unredacted
+# look at the PNG yourself, then zoom into dense areas (PNG px = SVG × 1.6):
+magick out/homelab.png -crop 1400x700+500+1500 +repage /tmp/crop.png
+```
 
-## Gotchas
-
-- Fonts: **Fira Sans** and **Fira Code** must be installed, otherwise rsvg falls back and every width calculation is off.
-- jsDelivr sometimes refuses single icons with 403; `fetch_icons.py` falls back to raw GitHub.
-- When content grows, grow `H` (and section heights like `ZH`), the asserts tell you where.
-- A device whose cable enters from above must have its entry point right of its folder tab (see how `KVM_IN`/`AP_IN` use `tab_width()`).
+The `assert`s at the end of `build.py` cover the vertical chain, the right column, the
+cluster's guest list and both bottom cards. They do not catch text overlap inside a card —
+that still needs eyes on the PNG.
