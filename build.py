@@ -92,29 +92,44 @@ try:
     }
     if not all(_FONTS.values()):
         raise RuntimeError("Fira Sans not found")
+    _MONO_FILE = _font_file("Fira Code")
+    if not _MONO_FILE:
+        raise RuntimeError("Fira Code not found")
     PIL_OK = True
     _FCACHE = {}
 
-    def measure(s, size, weight=700):
-        weight = min(_FONTS, key=lambda w: abs(w - weight))
-        key = (weight, size)
-        if key not in _FCACHE:
-            _FCACHE[key] = ImageFont.truetype(_FONTS[weight], size=size * 8)
+    def measure(s, size, weight=700, mono=False):
+        """Real advance width from the font that will actually render the text.
+
+        Mono text must be measured with Fira Code: Fira Sans is narrower, so measuring a
+        monospace label with it under-reports the width and the label collides with its
+        neighbour (this shipped once — see the public-host grid).
+        """
+        if mono:
+            key = ("mono", size)
+            if key not in _FCACHE:
+                _FCACHE[key] = ImageFont.truetype(_MONO_FILE, size=size * 8)
+        else:
+            weight = min(_FONTS, key=lambda w: abs(w - weight))
+            key = (weight, size)
+            if key not in _FCACHE:
+                _FCACHE[key] = ImageFont.truetype(_FONTS[weight], size=size * 8)
         return _FCACHE[key].getlength(s) / 8
 except Exception:
-    def measure(s, size, weight=700):
-        return sum(0.68 if c.isupper() else 0.58 if c.isdigit() else 0.5 for c in s) * size
+    def measure(s, size, weight=700, mono=False):
+        return len(s) * size * (0.602 if mono else 0.53)
 
 
 def fqdn(h):
     return f"{h}.{SHOWN_DOMAIN}"
 
 
-def fit(s, size, weight, width, floor=9.5):
-    """Largest size ≤ size at which `s` fits `width`."""
-    if measure(s, size, weight) <= width:
+def fit(s, size, weight, width, floor=9.5, mono=False):
+    """Largest size ≤ size at which `s` fits `width`, measured in the font it renders with."""
+    w = measure(s, size, weight, mono)
+    if w <= width:
         return size
-    return max(floor, round(size * width / measure(s, size, weight), 2))
+    return max(floor, round(size * width / w, 2))
 
 
 class SVG:
@@ -287,7 +302,7 @@ def device_card(x, y, w, h, icons, g, color, fill=PANEL, stroke=None, sw=1.6):
     S.text(tx_, y + 28 + dy, g.get("model") or "custom build",
            fit(g.get("model") or "custom build", 14, 500, avail),
            TEXT if g.get("model") else MUTED, 500)
-    addr(tx_, y + 48 + dy, g["ip"], g, color, fit(g["ip"] + " " + (hostname(g)[0] or ""), 12, 500, avail))
+    addr(tx_, y + 48 + dy, g["ip"], g, color, fit(g["ip"] + " " + (hostname(g)[0] or ""), 12, 500, avail, mono=True))
     if g.get("os"):
         S.text(tx_, y + 66, g["os"], fit(g["os"], 12, 400, avail), MUTED, 400)
     if g.get("note"):
@@ -543,7 +558,7 @@ for i, v in enumerate(INV["vlans"]):
     S.add(f'<rect x="{vx+14}" y="{y}" width="6" height="48" rx="3" fill="{v["color"]}"/>')
     S.text(vx + 30, y + 20, v["tag"], 12.5, v["color"], 600, mono=True)
     S.text(vx + 118, y + 20, v["name"], 15, TEXT, 600)
-    S.text(vx + vw - 24, y + 20, v["subnet"], fit(v["subnet"], 12, 500, 210), TEXT, 500, "end", mono=True)
+    S.text(vx + vw - 24, y + 20, v["subnet"], fit(v["subnet"], 12, 500, 210, mono=True), TEXT, 500, "end", mono=True)
     S.text(vx + 30, y + 38, v["note"], fit(v["note"], 11.5, 400, vw - 60), MUTED, 400)
 
 # ---- fleet facts (fills the gap under the networks table)
@@ -607,9 +622,9 @@ for i, k in enumerate(LG_ROWS):
 # ---- public hostnames (right column, under the AP card)
 PH_ = INV["fleet"]
 hosts = PH_["public_hosts"]
-cols = 3
-cell_w = (IW_ - 36) / cols
-cell_h = 23
+cols = 4
+cell_w = (IW_ - 34) / cols
+cell_h = 21
 rows_ = -(-len(hosts) // cols)
 ph_y = apy + APH + 16
 ph_h = 58 + rows_ * cell_h
@@ -619,8 +634,8 @@ S.text(IX_ + 20, ph_y + 48, PH_["hosts_note"], fit(PH_["hosts_note"], 11, 400, I
 for i, h in enumerate(hosts):
     cx_ = IX_ + 18 + (i % cols) * cell_w
     cy_ = ph_y + 58 + (i // cols) * cell_h
-    S.text(cx_, cy_ + 12, "·", 10, FAINT, 600)
-    S.text(cx_ + 8, cy_ + 12, fqdn(h), fit(fqdn(h), 10.5, 500, cell_w - 14), LINK, 500, mono=True)
+    S.text(cx_, cy_ + 11, "·", 9, FAINT, 600)
+    S.text(cx_ + 7, cy_ + 11, fqdn(h), fit(fqdn(h), 9.5, 500, cell_w - 11, floor=8.5, mono=True), LINK, 500, mono=True)
 
 # ================================================================ Proxmox cluster
 CL = INV["cluster"]
@@ -760,7 +775,7 @@ def pnode(n, x, y, w=NW_):
     S.text(x + 34, y + 38, n["sub"], fit(n["sub"], 10.5, 400, w - 44), MUTED, 400)
     S.text(x + 10, y + 56, n["ip"], 10, FAINT, 500, mono=True)
     if n.get("host"):
-        S.text(x + w - 10, y + 56, fqdn(n["host"]), fit(fqdn(n["host"]), 9.5, 500, 130), LINK, 500, "end", mono=True)
+        S.text(x + w - 10, y + 56, fqdn(n["host"]), fit(fqdn(n["host"]), 9.5, 500, 130, mono=True), LINK, 500, "end", mono=True)
 
 
 # row 1: the request path. row 2: indexers + Plex, with the two shares under them.

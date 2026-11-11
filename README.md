@@ -6,7 +6,8 @@ four-node Proxmox cluster, every guest on it, the Synology storage, and the medi
 
 Forked from [Goblinmine/homelab-diagram](https://github.com/Goblinmine/homelab-diagram) and
 rebuilt for a different topology: a flat `192.168.7.0/24` LAN with two extra VLANs, a
-4-node cluster running 60 guests, and Cloudflare Tunnel ingress instead of port forwards.
+4-node cluster running 60 guests (52 Flatcar VMs + 7 LXCs + one non-Flatcar VM), and
+Cloudflare Tunnel ingress instead of port forwards.
 
 ![Diagram](out/homelab.png)
 
@@ -23,8 +24,9 @@ rebuilt for a different topology: a flat `192.168.7.0/24` LAN with two extra VLA
   shares the media VMs mount.
 - **Media pipeline**: request → download → library → stream, with the two shares each stage
   touches.
-- **Exposure**: the two real port forwards (WireGuard, Plex) versus the 42 public hostnames
-  that ride the Cloudflare Tunnel, plus the monitoring stack.
+- **Exposure**: the two real port forwards (WireGuard, Plex) versus the 69 hostnames in the
+  Cloudflare Tunnel ingress — 57 of which answered an origin probe; the other 12 point at
+  addresses that no longer answer. Plus the monitoring stack.
 
 ## How it works
 
@@ -87,7 +89,8 @@ Everything in `inventory.yaml` was read live on 2026-11-11, not guessed:
 | Synology DSM over SSH | model, disks, `volume1` usage, shares |
 | `pvesh get /nodes/<n>/status` | CPU model, RAM per node |
 | Prometheus `speedtest_tracker_*` | real WAN throughput |
-| `docs/PORT-REGISTER.md` + Tunnel ingress | public hostnames |
+| `tunnel-migration/production-ingress.json` | the 69 hostnames, each TCP-probed for a live origin |
+| `pvesh` guest tags | 52 `flatcar-*` QEMU VMs (49 workloads + 3 canaries), 7 LXCs, 1 Debian VM |
 
 ## Credits & license
 

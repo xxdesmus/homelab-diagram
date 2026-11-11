@@ -265,18 +265,20 @@ fleet:
   title: "Fleet"
   note: "immutable by design: a config change means rebuilding the VM from git"
   facts:
-    - {icon: flatcar, name: "50 Flatcar VMs", note: "Ignition-built · no hand edits"}
-    - {icon: docker,  name: "7 LXCs",         note: "infra only: opencode, nebraska, auth, PBS, beszel"}
+    - {icon: flatcar, name: "52 Flatcar VMs", note: "49 workloads + 3 canaries · built from Ignition"}
+    - {icon: docker,  name: "7 LXCs",         note: "5 infra + couchdb-obsidian, qdrant"}
     - {icon: beszel,  name: "standard stack", note: "watchtower · diun · beszel-agent · telegraf"}
     - {icon: cloudflare, name: "canary → stable", note: "Nebraska staged rollouts, one group at a time"}
   hosts_title: "Public services"
-  hosts_note: "every one behind the Cloudflare Tunnel, most gated by Access"
+  hosts_note: "69 hostnames in the Tunnel ingress · 57 answered an origin probe"
   public_hosts:
-    [audiobookshelf, bazarr, beszel, change, chef, dash, dnssync, draw,
-     git, glance, gotify, grafana, hoard, influx, it, joplin, linkwarden,
-     mealie, memos, minecraft, n8n, observe, paste, patchmon, plex,
-     plexstats, prometheus, prowlarr, pulse, radarr, readarr, request,
-     rss, sabnzd, scan, smoke, sonarr, speed, stashapp, uptime, wallos]
+    [audiobookshelf, bazarr, beszel, change, chef, dash, dns1, dns2, dnssync,
+     draw, ghost, ghost2, git, glance, gotify, grafana, hoard, influx, it,
+     joplin, linkwarden, livesync, mealie, memos, metube, minecraft, n8n,
+     nebraska, nuc1, nuc2, nuc3, nuc4, observe, paste, patchmon, plex,
+     plexstats, prometheus, prowlarr, pulse, radarr, readarr, request, rss,
+     sabnzd, scan, smart, smoke, sonarr, speed, stashapp, unifi, uptime,
+     vpn, wallos]
 
 # ---------------------------------------------------------------- monitoring
 monitoring:

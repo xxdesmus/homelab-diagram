@@ -48,7 +48,8 @@ what changed here so a future session does not re-derive it.
 
 `inventory.yaml` was filled on 2026-11-11 from live read-only checks:
 
-- `pvesh get /cluster/resources --type vm` — 60 running guests (53 QEMU + 7 LXC), ids, RAM.
+- `pvesh get /cluster/resources --type vm` — 60 running guests: 52 `flatcar-*` QEMU VMs
+  (49 workloads + canaries 900/901/902), 7 LXCs, and `openmausbot` (VM 963, Debian).
 - UniFi API — WAN uplink (`1G` negotiated on `eth1`), VLANs 20/30, the three SSIDs, four mesh
   APs on 6 GHz, the two port forwards, and the fixed-IP map.
 - `dig @192.168.7.55 <name>.flatcar-lab.internal` — every VM's address.
